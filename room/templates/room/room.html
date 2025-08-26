@@ -3,78 +3,88 @@
 {% block title %}{{ room.name }} | {% endblock %}
 
 {% block content %}
-<div class="p-10 lg:p-20 text-center">
-  <h1 class="text-3xl lg:text-6xl text-white">{{ room.name }}</h1>
-</div>
-
-<div class="lg:w-2/4 mx-4 lg:mx-auto p-4 bg-white rounded-xl">
-    <div class="chat-messages space-y-3" id="chat-messages">
-        <div class="p-4 bg-gray-200 rounded-xl">
-            <p class="font-semibold">Username</p>
-            <p>The message lorem ipsum dolor sit amet.</p>
-        </div>
-
-        <div class="p-4 bg-gray-200 rounded-xl">
-            <p class="font-semibold">Username</p>
-            <p>The message lorem ipsum dolor sit amet.</p>
-        </div>
-
-        <div class="p-4 bg-gray-200 rounded-xl">
-            <p class="font-semibold">Username</p>
-            <p>The message lorem ipsum dolor sit amet.</p>
-        </div>
+<div class="max-w-3xl mx-auto mt-6 space-y-4 px-4">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl lg:text-3xl font-semibold text-white truncate"># {{ room.name }}</h1>
+        <a href="{% url 'rooms' %}" class="text-sm text-teal-300 hover:text-teal-200">All rooms</a>
     </div>
-</div>
-<br/>
-<div class="lg:w-2/4 mx-4 lg:mx-auto p-4 bg-white rounded-xl">
-    <form method="post" action="." class="flex">
-        <input type="text" name="content" class="flex-1 mr-3" placeholder="Your message..">
 
-        <button class="px-5 py-3 rounded-xl text-white bg-gray-700 hover:bg-gray-600" id="chat-message-submit">
-            Submit
-        </button>
-    </form>
+    <div class="bg-white rounded-xl shadow border border-gray-200 flex flex-col h-[30rem]">
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-3 text-sm bg-gray-50">
+            {% for message in messages %}
+                {% with is_me=message.user_id == request.user.id %}
+                <div class="flex {{ 'justify-end' if is_me else 'justify-start' }}" data-id="{{ message.id }}">
+                    <div class="max-w-[75%] rounded-lg px-3 py-2 {{ 'bg-teal-600 text-white' if is_me else 'bg-white border border-gray-200' }}"> 
+                        <div class="flex items-center gap-2 mb-0.5">
+                            <span class="font-semibold text-xs tracking-wide uppercase {{ 'text-teal-100' if is_me else 'text-teal-600' }}">{{ message.user.username }}</span>
+                            <span class="text-[10px] opacity-70">{{ message.date_added|date:'H:i' }}</span>
+                        </div>
+                        <p class="leading-snug whitespace-pre-wrap break-words">{{ message.content }}</p>
+                    </div>
+                </div>
+                {% endwith %}
+            {% empty %}
+                <p class="text-center text-gray-500 text-sm" id="empty-state">No messages yet. Say hi 👋</p>
+            {% endfor %}
+        </div>
+        <form id="chat-form" class="border-t border-gray-200 p-3 flex gap-2">
+            <input id="chat-message-input" name="content" autocomplete="off" placeholder="Type a message and press Enter" class="flex-1 rounded-md border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 px-3 py-2 outline-none text-sm bg-white" />
+            <button id="chat-message-submit" type="submit" disabled class="px-4 py-2 rounded-md bg-teal-500 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal-600 transition">Send</button>
+        </form>
+    </div>
+    <p class="text-xs text-gray-400 text-center">Updates every 2s (demo polling). Your messages are stored.</p>
 </div>
 {% endblock %}
 
-
-{% block script %}
-{{ room.slug|json_script:"json-roomname" }}
+{% block scripts %}
+{{ room.slug|json_script:"json-roomslug" }}
 {{ request.user.username|json_script:"json-username" }}
-
 <script>
-    const roomName = JSON.parse(document.getElementById('json-roomname'));
-    const chatSocket = new WebSocket(
-        'ws://'
-        + window.location.host
-        + '/ws/'
-        + roomName
-        + '/'
-    );
+const roomSlug = JSON.parse(document.getElementById('json-roomslug').textContent);
+const currentUser = JSON.parse(document.getElementById('json-username').textContent);
+const messagesBox = document.getElementById('chat-messages');
+const input = document.getElementById('chat-message-input');
+const sendBtn = document.getElementById('chat-message-submit');
+let lastId = (()=>{const items=[...messagesBox.querySelectorAll('[data-id]')];return items.length?parseInt(items.at(-1).dataset.id):0;})();
 
-    chatSocket.onmessage = function(e) {
-        console.log('onmessage')
-    }
+input.addEventListener('input', ()=>{sendBtn.disabled = !input.value.trim();});
 
-    chatSocket.onclose = function(e) {
-        console.log('onclose')
-    }
+function csrf(){return (`; ${document.cookie}`).split('; csrftoken=').pop().split(';')[0]||'';}
 
-    //
+function renderMessage(m){
+    const mine = m.username === currentUser;
+    const row = document.createElement('div');
+    row.className = 'flex ' + (mine ? 'justify-end' : 'justify-start');
+    row.dataset.id = m.id;
+    row.innerHTML = `<div class="max-w-[75%] rounded-lg px-3 py-2 ${mine? 'bg-teal-600 text-white':'bg-white border border-gray-200'}">`+
+        `<div class="flex items-center gap-2 mb-0.5">`+
+        `<span class="font-semibold text-xs tracking-wide uppercase ${mine?'text-teal-100':'text-teal-600'}">${m.username}</span>`+
+        `<span class="text-[10px] opacity-70">${m.date||''}</span>`+
+        `</div>`+
+        `<p class="leading-snug whitespace-pre-wrap break-words">${m.content}</p>`+
+        `</div>`;
+    messagesBox.appendChild(row);
+    if(document.getElementById('empty-state')) document.getElementById('empty-state').remove();
+}
 
-    document.querySelector('#chat-message-submit').onclick = function(e) {
-        const messageInputDom = document.querySelector('#chat-message-input');
-        const message = messageInputDom.value;
+async function sendMessage(text){
+    sendBtn.disabled = true;
+    const r = await fetch(`/rooms/${roomSlug}/messages/create/`, {method:'POST',headers:{'X-CSRFToken':csrf()},body:new URLSearchParams({content:text})});
+    if(r.ok) poll();
+    input.focus();
+}
 
-        chatSocket.send(JSON.stringify({
-            'message': message,
-            'username': userName,
-            'room': roomName
-        }))
+async function poll(){
+    const r = await fetch(`/rooms/${roomSlug}/messages/?after=${lastId}`);
+    if(!r.ok) return; const data = await r.json();
+    for(const m of (data.messages||[])){renderMessage(m); lastId = m.id;}
+    scroll();
+}
 
-        messageInputDom.value = '';
-    }
+document.getElementById('chat-form').addEventListener('submit', e=>{
+    e.preventDefault(); const v = input.value.trim(); if(!v) return; input.value=''; sendMessage(v);});
 
+function scroll(){messagesBox.scrollTop = messagesBox.scrollHeight;}
+setInterval(poll, 2000); scroll(); input.focus();
 </script>
-
 {% endblock %}
